@@ -37,4 +37,86 @@ When input is [50, 42, 1, 40, 43, 1, 53, 59] output is 56
 
 - An optimizer initialized with model parameters and learning rate and after doing losss.backward() you perform `optimizer.step()`
 
-## 
+## Self-Attention Block
+
+- Basically we want the tokens to talk to each other instead of Bigram taking only previous character info.
+
+- Dimension -> [B, T, C] Batch, Time series, Channels
+
+- If we take 5th token (Time series) we want this to talk to only the previous tokens and nothing in the future. (Becasue that needs to be predicted).
+
+- The Simplest way to communicate is to take channels of this and all previous tokens and average them out to have an overall information for this particular token. Now this losses lots of spacial information and not good communicating. But a good start.
+
+## Matrix multiplication as weighted aggregate of tokens
+
+- We could use two for loops first going through batches and second going through Time dimensions.
+- We then extract the required sub-torch ([b, :t+1]) and mean across the 1st dim and keep doing this.
+- Obviously this method is super slow and we want to convert this to matrix multiplication.
+
+- Suppose we take a A = [3, 3] matrix and multiply it with a B = [3, 2] matrix the result is a C = [3, 2] matrix.
+- Now, the first value of the result came from first row of A and first column of B.
+- Example -> 
+
+A = [1, 1, 1],
+    [1, 1, 1],
+    [1, 1, 1]
+
+B = [2, 7],
+    [6, 4],
+    [6, 5]
+
+C = A @ B becomes   [14, 16],
+                    [14, 16],
+                    [14, 16]
+
+`If any row of A is just ones, then C basically gets the sum across rows`
+
+- Now we we change the A matrix be be `a triangle matrix`-
+
+A = [1, 0, 0],
+    [1, 1, 0],
+    [1, 1, 1] using torch.tril(torch.ones(3,3))
+
+C = A @ B becomes   [2, 7],
+                    [8, 11],
+                    [14, 16]
+
+`8 and 11 are basically instead of summing across all the rows, only summing across that row and above`
+
+- Now we we change the A matrix be be `a triangle matrix with mean across columns`-
+
+A = [1.0, 0, 0],
+    [0.5, 0.5, 0],
+    [0.33, 0.33, 0.33] using torch.tril(torch.ones(3,3))
+
+A = A / A.sum(1, keepdim = True)
+
+C = A @ B becomes   [2.0, 7.0],
+                    [4.0, 5.5],
+                    [4.66, 5.33]
+
+`4.0 and 5.5 are now the average of values in that row and above rows of B  -->> Exactly what we wanted`
+
+<b>`So here the A matrix can be thought of like a MAsk or weight deciding how much value to give to which previous token`</b>
+
+B, T, C = 4, 8, 3
+
+Random trial batch of inputs of shape [B,T,C]
+x = torch.randint(1, 65, (B, T, C)).float()     # B,T,C --> 4,8,3
+print(x.shape)
+
+A Lower triangle 1.0
+tril = torch.tril(torch.ones(T, T))
+Initializing weights to zero
+wei = torch.zeros_like(tril).float()
+Preventing Future tokens talking to current and past tokens
+wei = wei.masked_fill(tril == 0, float('-inf'))
+Normalizing to get averages across time dimension
+wei = wei.softmax(dim = -1)
+Talking of weights with the input
+y = wei @ x     # [T,T] @ [B,T,C] -> [B,T,C]
+
+`The weights are initialized to zero, then we prevent future tokens talking and then we do a softmax to get average. You see how you can tune the weights based on the input data to find out which past token is how much important to this current token and change the weights accordingly`
+
+## Self Attention Block
+
