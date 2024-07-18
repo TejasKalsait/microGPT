@@ -118,5 +118,28 @@ y = wei @ x     # [T,T] @ [B,T,C] -> [B,T,C]
 
 `The weights are initialized to zero, then we prevent future tokens talking and then we do a softmax to get average. You see how you can tune the weights based on the input data to find out which past token is how much important to this current token and change the weights accordingly`
 
-## Self Attention Block
+## Self Attention Head
 
+- We have seen that the values of this wei matrix show how much other past tokens are important for the current token.
+- But instead of keeping them at all zero, wei is derived by performing a self attention head block.
+
+#### Block
+
+- Extract B,T,C dimensions from input. And another hyperparaeter `head_size` (32)
+- We initialize Three nn.Linear layers called `key`, `query` and `value`. All of this take input of size C->channels and output of size head_size.
+- The input [B,T,C] is passed through the key and query layer to get outputs k and q of size `[B, T, head_size]`
+- Now the weight matrix is a dot product of q and k. [B,T, head_size] dt with [B, T, head_size]. So we transpose the second value wrt last two dimensions. So the key dim -> [B, head_size, T] which results in a dot product of `[B, T, T]`. Which is indeed our weight matrix telling us how much other tokens contribute.
+- Once we get this wei matrix now, we mask it to prevent future tokens to communicate, and perform a softmax across columns to get normalized weights as before.
+- Now instead of doing a dot product of this wei matrix with the input data directly, we pass the data through the value layer to get an output v of dim [B,T,head_size].
+- Then we finally do matrix multiplication of `wei @ v`.
+
+Query -> Asking a question if anyone has this xyz
+key -> Answering that query yes I have that
+Dot_product -> High value to similar vectors, low value to opposite vectors. This is the communication between tokens established. 
+
+
+## Embedding and Positional Embedding
+
+- We first have the embedding table that converts inputs [B, T] to [B, T, C] so this takes input of vocab_size and outputs n_embid.
+- Next with the token encodings, we also want the position encodings. We have another encoding matrix called position_encoding and that converts inputs [position Token] and outputs position encoding for that table. So its input is [block_size] and output is [n_embid](32) which is same as embedding table.
+- Finally we add both to get final enbeddings. [B,T,C] + [T,C]

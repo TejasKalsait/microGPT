@@ -18,6 +18,8 @@ loss_eval_interval = 500
 learning_rate = 1e-3
 epochs = 5000
 
+n_embid = 32
+
 tokens_to_generate = 500
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -82,13 +84,19 @@ class BiGram(nn.Module):
         super().__init__()
 
         # Embedding layer which has it's __call__ function
-        self.embedding_table = nn.Embedding(vocab_size, vocab_size)
+        self.embedding_table = nn.Embedding(vocab_size, n_embid)
+        self.position_embedding_table = nn.Embedding(block_size, n_embid)
+        self.lm_head = nn.Linear(n_embid, vocab_size)
 
     # The nn.Module handles the __call__ func
     def forward(self, idx, targets=None):
 
         # idx and targets shape (B, T)
-        logits = self.embedding_table(idx)
+        tok_emb = self.embedding_table(idx)     # [B, T, C]
+        B, T, C = tok_emb.shape
+        pos_embid = self.position_embedding_table(torch.arange(T, device = device))     # [T,C]
+        x = tok_emb + pos_embid         # [B,T,C] + [T,C]
+        logits = self.lm_head(tok_emb)  # [B, T, vocab_size]
 
         # Just in case we only want Logits while generating
         if targets is None:
