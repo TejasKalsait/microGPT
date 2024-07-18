@@ -125,6 +125,12 @@ y = wei @ x     # [T,T] @ [B,T,C] -> [B,T,C]
 
 #### Block
 
+<b>`Attention Mechanism is the way of communication between nodes in general. Where every node can aggregate a weighted sum of information from all the other nodes that are incoming to this current node`</b>
+
+`In our case, the graph looks like this`
+
+![alt text](../images/attention_graph.jpg)
+
 - Extract B,T,C dimensions from input. And another hyperparaeter `head_size` (32)
 - We initialize Three nn.Linear layers called `key`, `query` and `value`. All of this take input of size C->channels and output of size head_size.
 - The input [B,T,C] is passed through the key and query layer to get outputs k and q of size `[B, T, head_size]`
