@@ -8,8 +8,8 @@
 
 - There are many tokenizers and detokenizers out there that encode string into list of ints and list od ints back to string. There are many schemas to do this.
 - For example, Google uses SentencePiece
-![SentencePiece](https://github.com/google/sentencepiece), OpenAI uses Tiktoken
-![Tiktoken](https://github.com/openai/tiktoken)
+[SentencePiece](https://github.com/google/sentencepiece), OpenAI uses Tiktoken
+[Tiktoken](https://github.com/openai/tiktoken)
 - We will just use normal mapping of string to int and vice versa for now.
 
 - `The vocab_size and encoding output are inversly proportional`. If the vocab size is small, you wll have a longer sequence of encodings. For example "hii there" --> [46, 47, 47, 1, 58, 46, 43, 56, 43] in our character level tokanizer with vocab_size of 65. If you use the GPT-2 tokenizer Tiktoken, the encoind will be "hii there" --> [71, 4178, 612] since the vocab_size is 50,257.
@@ -129,12 +129,21 @@ y = wei @ x     # [T,T] @ [B,T,C] -> [B,T,C]
 
 `In our case, the graph looks like this`
 
-![alt text](../images/attention_graph.jpg)
+![Attention graph](../images/attention_graph.jpg)
+
+Unlike convolution, the nodes here no idea about the space(positioning) so we need to explicitely provide position embedding.
+
+- An `Decoding Attention Block` is what we have designed where based on past tokens it decodes what the next token is. So we add masking to prevent future tokens to talk to current token.
+- An `Encoding Attention Block` is the one without masking where any given token talks to all other tokens, including future tokens. Used to sentiment analysis or translation.
+
+- Why `Self-Attention`? Because the Keys, Queries and Values all come from the same source (x) input.
+- In `Cross-Attention`, key would come from this x source but query and value would come from feedforwarding on a different source. And the other souce could be an encoding-attention block to to capture sentiment information from that source and quering with this source.
 
 - Extract B,T,C dimensions from input. And another hyperparaeter `head_size` (32)
 - We initialize Three nn.Linear layers called `key`, `query` and `value`. All of this take input of size C->channels and output of size head_size.
 - The input [B,T,C] is passed through the key and query layer to get outputs k and q of size `[B, T, head_size]`
 - Now the weight matrix is a dot product of q and k. [B,T, head_size] dt with [B, T, head_size]. So we transpose the second value wrt last two dimensions. So the key dim -> [B, head_size, T] which results in a dot product of `[B, T, T]`. Which is indeed our weight matrix telling us how much other tokens contribute.
+- The variance of this roughly equals the head_size and this is going to later be fed to a softmax and we know softmax should have a relatively uniform distribution instead of high peaks that will make one value very high. So we divide the values by `(1.0/C**0.5)` as suggested in the paper.
 - Once we get this wei matrix now, we mask it to prevent future tokens to communicate, and perform a softmax across columns to get normalized weights as before.
 - Now instead of doing a dot product of this wei matrix with the input data directly, we pass the data through the value layer to get an output v of dim [B,T,head_size].
 - Then we finally do matrix multiplication of `wei @ v`.
@@ -143,9 +152,13 @@ Query -> Asking a question if anyone has this xyz
 key -> Answering that query yes I have that
 Dot_product -> High value to similar vectors, low value to opposite vectors. This is the communication between tokens established. 
 
-
 ## Embedding and Positional Embedding
 
 - We first have the embedding table that converts inputs [B, T] to [B, T, C] so this takes input of vocab_size and outputs n_embid.
 - Next with the token encodings, we also want the position encodings. We have another encoding matrix called position_encoding and that converts inputs [position Token] and outputs position encoding for that table. So its input is [block_size] and output is [n_embid](32) which is same as embedding table.
 - Finally we add both to get final enbeddings. [B,T,C] + [T,C]
+
+## Attention Blocks followed by Linear blocks
+
+- Attention blocks are blocks where the communication with other tokens happens and finally each token gets a new value based on what it hs learned from others
+- This is followed by a Linear layer where these new token values are processed and allowed to think on individually before they can again communicate.
