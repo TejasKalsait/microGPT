@@ -8,6 +8,8 @@ The goal of this project was to recreate and train a miniaturized version of GPT
 
 ## Model Architecture
 
+![model architecture image](https://github.com/TejasKalsait/microGPT/blob/main/images/mini_gpt_arch.jpg)
+
 ### Key Components
 - **Self-Attention Mechanism**: Used to capture dependencies between different parts of the input sequence.
 - **Feedforward Neural Networks**: Applied after the attention mechanism to process the representations.
@@ -17,7 +19,6 @@ The goal of this project was to recreate and train a miniaturized version of GPT
 ### Layers
 
 - `input -> token_embedding + position_embedding -> input_embedding -> * [[self attention -> dropout -> layer_norm] *skip_connection -> @ [linear_mlp -> dropout -> layer_norm]] @skip_connection x 6 -> layer_norm -> linear_lm_head -> logits`
-IMAGE HERE
 
 ### Hyperparameters
 - **Train Split**: 0.9
@@ -40,11 +41,11 @@ IMAGE HERE
 
 ## Notes
 
-Detailed notes taken during the development and training of this model can be found in the [NOTES](./demo/NOTES.md) file.
+Detailed notes taken during the development and training of this model can be found in the [my notes](./demo/NOTES.md) file.
 
 ## Loss Record
 
-The detailed record of training and validation losses at each phase can be found in the [Loss Record](./demo/Loss_record.md) file.
+The detailed record of training and validation losses at each phase can be found in the [loss records](./demo/Loss_record.md) file.
 
 ## Conclusion
 
