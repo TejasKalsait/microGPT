@@ -5,24 +5,34 @@ import torch.nn.functional as F
 import random
 import os
 
-# Hyperparameters
-train_split = 0.9
-val_split = 1.0 - train_split
+### Hyperparameters
+train_split = 0.9               # Ration of training data we need
+val_split = 1.0 - train_split   # Remaining data is test data
 
-batch_size = 32
-block_size = 8
+batch_size = 64                 # How many examples to process at once
+block_size = 256                  # How many tokens to process at once (Token size)
+n_embid = 384                    # Number of embeddings for each token (channels)
+n_heads = 6                     # How many self-attention heads in a multi-head self-attention layer (communication channels    )
+n_layer = 6                     # How big of a consecutive stack of (multi-head-->MLP) we want
 
-loss_eval_iters = 200
-loss_eval_interval = 500
+loss_eval_interval = 500        # Calculate loss after how many epochs
+loss_eval_iters = 200           # How many samples to consider to get an average of loss going on
 
-learning_rate = 1e-3
-epochs = 5000
+learning_rate = 3e-4            # Learning rate for the Optimizer
+epochs = 5000                   # Number of epochs
+dropout = 0.2                   # Ratio of neurons to dropout for regularization
 
-n_embid = 32
-head_size = 32
+tokens_to_generate = 10000      # How big of an answer to generate
+relative_input_path = '../data/shakespear.txt'
+relative_output_path = '../output/output.txt'
 
-tokens_to_generate = 500
+# ______________________________________________________
 
+script_dir = os.path.dirname(os.path.abspath(__file__))
+input_file_path = os.path.join(script_dir, relative_input_path)
+output_file_path = os.path.join(script_dir, relative_output_path)
+
+# CPU or GPU
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print("Training on -->", device)
 
@@ -30,10 +40,7 @@ print("Training on -->", device)
 torch.manual_seed(800)
 
 # Dataset
-script_dir = os.path.dirname(os.path.abspath(__file__))
-relative_path = '../data/shakespear.txt'
-file_path = os.path.join(script_dir, relative_path)
-with open(file_path, 'r') as f:
+with open(input_file_path, 'r') as f:
     text = f.read()
 
 chrs = sorted(list(set(text)))
@@ -92,6 +99,7 @@ class Head(nn.Module):
         self.query = nn.Linear(n_embid, head_size, bias = False)
         self.value = nn.Linear(n_embid, head_size, bias = False)
         self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
         B, T, C = x.shape
@@ -102,6 +110,7 @@ class Head(nn.Module):
         wei = q @ k.transpose(-2, -1) * (C**-0.5)               # [B,T,head_size] @ [B,head_size, T] -> [B,T,T]
         wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf'))    # Same
         wei = F.softmax(wei, dim=-1)
+        wei = self.dropout(wei)         # randomly prevet some token to communicate
         # Weighted aggregation of the values
         v = self.value(x)  # [B,T,head_size]
         out = wei @ v       # [B,T,T] @ [B,T,head_size] -> [B,T,head_size]
@@ -109,28 +118,71 @@ class Head(nn.Module):
     
 class MultiHeadAttention(nn.Module):
 
-    def __init__(self, num_heads, head_size) -> None:
+    '''
+    Multiple self attention heads and concatenating results
+    input -> data of shape [B,T,C]
+    output -> data of shape [B,T,C]
+    '''
+
+    def __init__(self, n_heads, head_size) -> None:
         super().__init__()
-        self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
+        self.heads = nn.ModuleList([Head(head_size) for _ in range(n_heads)])
+        self.proj = nn.Linear(n_embid, n_embid)
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
-        return torch.cat([h(x) for h in self.heads], dim = -1)
+        out = torch.cat([h(x) for h in self.heads], dim = -1)
+        out = self.dropout(self.proj(out))
+        return out
     
 class FeedForward(nn.Module):
 
-    def __init__(self, head_size) -> None:
+    '''
+    A simple MLP to perform computation after self-attention
+    input -> data of shape [B,T,C]
+    output -> data of shape [B,T,C]
+    '''
+
+    def __init__(self, n_embid) -> None:
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(head_size, head_size),
+            nn.Linear(n_embid, 4 * n_embid),        # In the paper they suggest neurons in computation to be 4x of input
             nn.ReLU(),
+            nn.Linear(4 * n_embid, n_embid),        # Linear transformation for skip connections to keep the same channels
+            nn.Dropout(dropout),
         )
 
     def forward(self, x):
         return self.net(x)
+    
+
+class Block(nn.Module):
+
+    '''
+    A Block that performs multihead attention (communication) followed by MLP feedforward (computation)
+    # Takes in num_heads and n_embid as inputs to calculate head size
+    input -> data of shape [B,T,n_embid or C]
+    output -> data of shape [B,T,n_embid or C]
+    '''
+
+    def __init__(self, n_heads, n_embid) -> None:
+        super().__init__()
+        head_size = n_embid// n_heads
+        self.sa_heads = MultiHeadAttention(n_heads, head_size)
+        self.ffw = FeedForward(n_embid)
+        self.ln1 = nn.LayerNorm(n_embid)        # Layer normalization to normalize all the channels (depth)
+        self.ln2 = nn.LayerNorm(n_embid)        # of each token of each batch
+
+    def forward(self, x):
+        # x -> [B,T,C]
+        x = x + self.sa_heads(self.ln1(x))        # Both have residual connections (computation and add previous to it). Backpropogation is handeled.
+        x = x + self.ffw(self.ln2(x))             # Adding layernorm before the actual layer based on recent advancements of attention blocks.
+        return x    # [B,T,C]
+
 
 
 # Building the simple BiGram lamodel
-class BiGram(nn.Module):
+class GPTLanguageModel(nn.Module):
 
     def __init__(self) -> None:
         super().__init__()
@@ -138,9 +190,9 @@ class BiGram(nn.Module):
         # Embedding layer which has it's __call__ function
         self.embedding_table = nn.Embedding(vocab_size, n_embid)
         self.position_embedding_table = nn.Embedding(block_size, n_embid)
-        self.sa_heads = MultiHeadAttention(4, head_size//4)
-        self.ffwd = FeedForward(head_size)
-        self.lm_head = nn.Linear(head_size, vocab_size)       # Right now the decoder to 65 vocab size
+        self.blocks = nn.Sequential(*[Block(n_embid = n_embid, n_heads = n_heads) for _ in range(n_layer)])     # The `*` unpacks the list into seperate arguments how Sequencial expects.
+        self. ln_f = nn.LayerNorm(n_embid)                  # Last layer norm
+        self.lm_head = nn.Linear(n_embid, vocab_size)       # Right now the decoder to 65 vocab size
 
     # The nn.Module handles the __call__ func
     def forward(self, idx, targets=None):
@@ -150,8 +202,8 @@ class BiGram(nn.Module):
         tok_emb = self.embedding_table(idx)     # [B, T, C]
         pos_embid = self.position_embedding_table(torch.arange(T, device = device))     # [T,C]
         x = tok_emb + pos_embid         # [B,T,C] + [T,C]
-        x = self.sa_heads(x)            # [B,T,head_size]
-        x = self.ffwd(x)                # [B, T, head_size]
+        x = self.blocks(x)              # [B, T,C]
+        x = self.ln_f(x)                # [B, T, C]
         logits = self.lm_head(x)  # [B, T, vocab_size]
 
         # Just in case we only want Logits while generating
@@ -185,8 +237,12 @@ class BiGram(nn.Module):
         return idx
     
 # Initializing the model
-model = BiGram()
+model = GPTLanguageModel()
 m = model.to(device)
+
+# Checking for parameters
+n_parameters = sum(p.numel() for p in model.parameters())
+print(f"Total number of parameters in the model   -->   {n_parameters}")
 
 # Initializing the optimizer
 optimizer = torch.optim.AdamW(m.parameters(), lr = learning_rate)
@@ -213,6 +269,28 @@ for epoch in range(epochs):
         losses = estimate_loss()
         print(f"Epoch   {epoch} / {epochs}  Train Loss -->    {losses['train']:.4f}     Validation Loss -->    {losses['val']:.4f}")
 
+# Printing the final loss after training
+final_loss = estimate_loss()
+print("Model Trained Successfully!!")
+print(f"Train Loss -->    {losses['train']:.4f}     Validation Loss -->    {losses['val']:.4f}")
+
 # Generate Example from the model
 context = torch.zeros((1, 1), dtype = torch.long, device = device)
-print(decode(m.generate(context, max_new_tokens = tokens_to_generate)[0].tolist()))
+output = decode(m.generate(context, max_new_tokens = tokens_to_generate)[0].tolist())
+
+# Print or file
+if tokens_to_generate < 1001:
+    print("Printing the output from the Language model....")
+    print(output)
+else:
+    with open(output_file_path, 'w') as file:
+        print(f"Saving the output from the model at {output_file_path}")
+        file.write(output)
+
+# _________________________________________________________YAYYYYYY!!!!____________________________________________________________________________________
+
+'''
+Tejas Kalsait
+email: kalsaittejas10@gmail.com
+LinkedIn: https://www.linkedin.com/in/tkalsait/
+'''

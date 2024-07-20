@@ -39,6 +39,8 @@ When input is [50, 42, 1, 40, 43, 1, 53, 59] output is 56
 
 ## Self-Attention Block
 
+![attention block image](../images/attention_block.png)
+
 - Basically we want the tokens to talk to each other instead of Bigram taking only previous character info.
 
 - Dimension -> [B, T, C] Batch, Time series, Channels
@@ -162,3 +164,61 @@ Dot_product -> High value to similar vectors, low value to opposite vectors. Thi
 
 - Attention blocks are blocks where the communication with other tokens happens and finally each token gets a new value based on what it hs learned from others
 - This is followed by a Linear layer where these new token values are processed and allowed to think on individually before they can again communicate.
+
+## Residual Connection or Skip connection
+
+![residual block image](../images/residual_block.png)
+
+- Residual block allow a skip connection while doing deep computation. While merging, you just add the skip connection outputs to computation network output.
+- `Remmeber how during backpropagation, addition just distributes the gradients??? And also that multiple gradients coming from a chain just gets add up??` Well because of this skip connection, we populate the gradient at the start of the skip connection and also add gradients coming from the computational branch. Pretty neat!!
+- In the beginning only the skip connections are mostly active and the gradients just flow right through the input. And over time of optimization the computational block kicks in.
+- There is always a project layer at the end of computational path to make it's channel equal to the start of the skip connection so that they can be added.
+
+## Layer Normalization
+
+- Very similar to BatchNorm where BatchNorm normalizes over one partcular batch (`In other words, it normalizes across the row which is the batch dimension`). Therefore every batch coming out will have 0 mean and 1 std; unit gaussian.
+- Layer normalization normalizes across the column dimension instead of batch dimension. (`One batch won't be a unit gaussian butt one particular example is unit gaussian.`)
+- We therefore don't need to maintain running mean and std values for test time.
+- Basically a batch norm normalizes the columns and a layer norm normalizes the rows.
+
+> :bulb: **Tip**: Recent advancements in transformers have changed adding of the layer normalization before the attention layer and mlp layer instead of after the layers in the original paper.
+
+## Dropouts
+
+- Given a probability, randomly makes some values of the input tensor as zeros. Has a regularization effect.
+- We use dropouts-
+    - After feedforward (computational) layer's outputs
+    - After MultiHead Attention layer
+    - After Softmax inside a single Head (randomly prevet some token to communicate)
+
+> :bulb: **Tip**: Dropouts are disable during test time and everything contributes.
+
+## GPT-3
+
+- Multiple models from 125 million to 175 Billion parameters
+- Al models are trained on 300 Billion token
+- GPT-3 parameters - layers -> 96, embedding -> 12288, n_heads -> 96, so the head_size becomes -> 128, batch_size -> 3.2 million, learning_rate in the e-4 scale, block_size (token size) -> 4096
+
+- That compared to our model-
+
+- Our model has 10 million parameters
+- Our models is trained on roughly 300 thousand tokens in the dataset (1.1 million tokens in real)
+- Our model - layers -> 6, embedding -> 384, n_heads -> 6, so the head_size becomes -> 64, batch_size -> 64, learning_rate in the 3e-4 scale, block_size (token size) -> 256
+
+# GPT training process
+
+![chat GPT fine tune image](../images/chat_gpt_finetune.png)
+
+- We coded a `DECODER` attention network (masked). Only allowed to see the past and learn the future predictions.
+- By training this, we can give the model a start and then it will blabber similar text. This will be random and it will just keep on predicting what will come next. This is not how ChatGPT works. If I give my `decoder` model a question, it will probably just give me more questions lol or something random based on it's learning.
+- To make it more like an assistant, we need to fine-tune the model after this `pretraining` step that we did.
+- After we have the base model, ChatGPT is finetuned with -
+    - They have a prompt dataset which is 1000s of data of the question prompts people will give.
+    - A prompt is sampled from it and then a labeler demonstrates how the output should be like for this prompt.
+    - Then this data is used to fine tune the model...optimize it to understand the question and answer scenario.
+    - They also train a reward model where it outpus multiple answers and then a human labeler ranks them from best to worst.
+    - Finally they run a reinforcement learning to optimize the reward function using the PPO reinforcement learning algorithm.
+- This is how a model is turned from a document completer to a question-answer model.
+
+
+# AND.....THIS IS AI REALLY.
